@@ -1,11 +1,11 @@
 {
     "compilerOptions": {
-        "noImplicitAny": true,
+        "noImplicitAny": false,
         "removeComments": true,
         "preserveConstEnums": true,
         "module": "CommonJS",
         "outDir": "dist",
-        "sourceMap": true
+        "sourceMap": false
     },
     "include": ["src/**/*"],
     "exclude": ["node_modules"]

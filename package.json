@@ -11,10 +11,18 @@
     "url": "git+https://github.com/Coder99513/omdb-bot.git"
   },
   "author": "Coder99513",
-  "contributors": ["EthanMN"],
+  "contributors": [
+    "EthanMN"
+  ],
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/Coder99513/omdb-bot/issues"
   },
-  "homepage": "https://github.com/Coder99513/omdb-bot#readme"
+  "homepage": "https://github.com/Coder99513/omdb-bot#readme",
+  "devDependencies": {
+    "@types/node": "^16.4.6"
+  },
+  "dependencies": {
+    "omegle-node-fix": "^1.1.7"
+  }
 }
