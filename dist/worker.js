@@ -1,37 +1,76 @@
+"use strict";
+exports.__esModule = true;
 var Omegle = require('omegle-node-fix');
 var om = new Omegle();
+var words = require('an-array-of-english-words');
+var connected = false;
+var topics = [];
+var captchaWords = [""];
+var redis = require("redis");
+var client = redis.createClient();
+function debug(msg) {
+    client.get("debug", function (err, reply) { if (reply != true)
+        console.log(process.pid + " Debug: " + msg); });
+}
+function formatMessage(input) {
+    input = input.replace(/\s+/g, '');
+    return input.toLowerCase();
+}
+function resetConnection() {
+    console.log("Reset connection.");
+    if (om.connected()) {
+        om.disconnect();
+        connected = false;
+    }
+    om.connect(topics);
+}
+var sendWithTyping = function (message) {
+    return new Promise(function (resolve, reject) {
+        if (om.connected()) {
+            om.startTyping();
+            setTimeout(function () {
+                if (!om.connected()) {
+                    reject();
+                    return;
+                }
+                om.send(message);
+                om.stopTyping();
+                resolve(1);
+            }, 700);
+        }
+        else
+            reject();
+    });
+};
 om.on('omerror', function (err) {
     console.log('Error: ' + err);
 });
 om.on('recaptchaRequired', function (challenge) {
-    console.log(challenge);
-    process.exit();
+    debug("Captcha found. Disconnecting.");
+    resetConnection();
 });
 om.on('gotID', function (id) {
-    console.log('Connected to server as: ' + id);
+    debug('Connected to Omegle as ' + id);
     setTimeout(function () {
         if (!om.connected()) {
             om.stopLookingForCommonLikes();
-            console.log('Connecting to a random stranger instead...');
+            debug('Topics ineffective. Searching for random user.');
+            topics = [];
         }
-    }, 5000);
+    }, 30000);
 });
 om.on('waiting', function () {
-    console.log('Waiting for a stranger.');
+    debug("Searching for stranger...");
 });
 om.on('serverUpdated', function (server) {
-    console.log('Server updated to: ' + server);
+    debug('Server updated to: ' + server);
 });
 om.on('connected', function () {
-    console.log('Connected');
-    om.startTyping();
-    setTimeout(function () {
-        om.stopTyping();
-        om.send('send nudes pls');
-    }, 3000);
+    sendWithTyping("Hello");
 });
 om.on('gotMessage', function (msg) {
-    console.log('Stranger: ' + msg);
+    debug("Stranger sent: " + msg);
+    if (connected == true) { }
 });
 om.on('commonLikes', function (likes) {
     console.log('Common likes: ' + likes);
@@ -40,7 +79,6 @@ om.on('strangerDisconnected', function () {
     console.log('Stranger has disconnected.');
 });
 om.on('disconnected', function () {
-    console.log('You have disconnected.');
+    debug("Got disconnected. Reconnecting...");
 });
-var topics = ['jadfjpi0qawjieofopjiavjin0wipejdfpiajwefijp'];
 om.connect(topics);

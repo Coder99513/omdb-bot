@@ -4,7 +4,8 @@
   "description": "lol",
   "main": "dist/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "tsc; node dist/index.js"
   },
   "repository": {
     "type": "git",
@@ -23,6 +24,8 @@
     "@types/node": "^16.4.6"
   },
   "dependencies": {
-    "omegle-node-fix": "^1.1.7"
+    "an-array-of-english-words": "^2.0.0",
+    "omegle-node-fix": "^1.1.7",
+    "redis": "^3.1.2"
   }
 }

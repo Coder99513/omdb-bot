@@ -1,60 +1,106 @@
-var Omegle = require('omegle-node-fix');
-var om = new Omegle();
+export { };
 
-om.on('omerror',function(err){
+const Omegle = require('omegle-node-fix');
+const om = new Omegle();
+const words = require('an-array-of-english-words')
+
+let connected = false;
+let topics = [];
+
+const captchaWords = [""]
+
+const redis = require("redis");
+const client = redis.createClient();
+
+// Debug helper function
+function debug(msg) {
+	client.get("debug", (err, reply) => { if (reply != true) console.log(`${process.pid} Debug: ${msg}`) });
+}
+// Format commands
+function formatMessage(input) {
+	input = input.replace(/\s+/g, '');
+	return input.toLowerCase();
+}
+// Disconnect and reconnect.
+function resetConnection() {
+	console.log("Reset connection.")
+	//clearTimeout(currentID)
+	if (om.connected()) {
+		om.disconnect()
+		connected = false;
+	}
+	om.connect(topics)
+}
+// Promise, sends a message more quickly than a human, but slower than an instantaneous message send.
+const sendWithTyping = (message) => {
+	return new Promise((resolve, reject): void => {
+		if (om.connected()) {
+			om.startTyping();
+			setTimeout(() => {
+				if (!om.connected()) { reject(); return; }
+				om.send(message);
+				om.stopTyping();
+				resolve(1);
+			}, 700)
+		} else reject();
+	});
+};
+
+// Miscellaneous connection and error handlers.
+
+// Handle errors and recaptchas.
+om.on('omerror', function (err) {
 	console.log('Error: ' + err);
 });
-
-om.on('recaptchaRequired',function(challenge){
-    console.log(challenge);
-    process.exit();
+om.on('recaptchaRequired', function (challenge) {
+	debug("Captcha found. Disconnecting.");
+	resetConnection();
 });
 
-om.on('gotID',function(id){
-	console.log('Connected to server as: ' + id);
-	setTimeout(function(){
-		if(!om.connected()){
+// Search for a user.
+om.on('gotID', function (id) {
+	debug('Connected to Omegle as ' + id);
+	setTimeout(function () {
+		if (!om.connected()) {
 			om.stopLookingForCommonLikes(); // or you could call om.slfcl()
-			console.log('Connecting to a random stranger instead...');
+			debug('Topics ineffective. Searching for random user.');
+			topics = [];
 		}
-	},5000);
+	}, 30000);
 });
 
-om.on('waiting', function(){
-	console.log('Waiting for a stranger.');
+om.on('waiting', function () {
+	debug("Searching for stranger...")
 });
 
-om.on('serverUpdated',function(server){
-	console.log('Server updated to: ' + server);
-});
-
-om.on('connected',function(){
-	console.log('Connected');
-	om.startTyping();
-	setTimeout(function(){
-		om.stopTyping(); //It's better to check if you're still connected to the stranger when using setTimeout.
-		om.send('send nudes pls');
-	},3000);
+om.on('serverUpdated', function (server) {
+	debug('Server updated to: ' + server);
 });
 
 
-om.on('gotMessage',function(msg){
-	console.log('Stranger: ' + msg);
+om.on('connected', function () {
+	sendWithTyping("Hello")
 });
 
-om.on('commonLikes',function(likes){
+
+om.on('gotMessage', function (msg) {
+	debug(`Stranger sent: ${msg}`)
+	if (connected == true) {}
+});
+
+om.on('commonLikes', function (likes) {
 	console.log('Common likes: ' + likes);
 });
 
-om.on('strangerDisconnected',function(){
+om.on('strangerDisconnected', function () {
 	console.log('Stranger has disconnected.');
 });
 
-om.on('disconnected',function(){
-	console.log('You have disconnected.');
+om.on('disconnected', function () {
+	debug("Got disconnected. Reconnecting...")
+
 });
 
-var topics = ['jadfjpi0qawjieofopjiavjin0wipejdfpiajwefijp'];
 om.connect(topics);
 
 

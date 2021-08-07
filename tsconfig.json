@@ -1,5 +1,7 @@
 {
     "compilerOptions": {
+        "lib": ["es6"],
+        "types": ["node"],
         "noImplicitAny": false,
         "removeComments": true,
         "preserveConstEnums": true,
