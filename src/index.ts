@@ -1,7 +1,6 @@
 const cluster = require('cluster');
 const http = require('http');
 const numCPUs = require('os').cpus().length;
-
 const redis = require("redis");
 const client = redis.createClient();
 

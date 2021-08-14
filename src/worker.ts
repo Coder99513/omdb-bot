@@ -1,20 +1,35 @@
+import { setEnvironmentData } from "worker_threads";
+
 export { };
 
 const Omegle = require('omegle-node-fix');
 const om = new Omegle();
-const words = require('an-array-of-english-words')
+
+const intdebug = true; // Set to true to enable internal debug
 
 let connected = false;
 let topics = [];
+let captchatext = "";
+let nickname = "";
 
-const captchaWords = [""]
 
 const redis = require("redis");
 const client = redis.createClient();
 
 // Debug helper function
 function debug(msg) {
-	client.get("debug", (err, reply) => { if (reply != true) console.log(`${process.pid} Debug: ${msg}`) });
+	client.get("debug", (err, reply) => { if (reply == true || intdebug == true) console.log(`${process.pid} Debug: ${msg}`) });
+}
+// Random text gen
+function maketoken(length) {
+    var result           = '';
+    var characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    var charactersLength = characters.length;
+    for ( var i = 0; i < length; i++ ) {
+      result += characters.charAt(Math.floor(Math.random() * 
+ charactersLength));
+   }
+   return result;
 }
 // Format commands
 function formatMessage(input) {
@@ -39,6 +54,7 @@ const sendWithTyping = (message) => {
 			setTimeout(() => {
 				if (!om.connected()) { reject(); return; }
 				om.send(message);
+				debug(`Omegle bot sent: ${message}`)
 				om.stopTyping();
 				resolve(1);
 			}, 700)
@@ -50,7 +66,7 @@ const sendWithTyping = (message) => {
 
 // Handle errors and recaptchas.
 om.on('omerror', function (err) {
-	console.log('Error: ' + err);
+	debug('Omegle Error: ' + err);
 });
 om.on('recaptchaRequired', function (challenge) {
 	debug("Captcha found. Disconnecting.");
@@ -79,13 +95,24 @@ om.on('serverUpdated', function (server) {
 
 
 om.on('connected', function () {
-	sendWithTyping("Hello")
+	connected = false;
+	captchatext = maketoken(4);
+	nickname = `Stranger#${process.pid}`
+	sendWithTyping("You have come across a roving chatroom. Please say '" + captchatext + "' to join the chatroom.")
+	.then(()=>{sendWithTyping("Your nickname in this chatroom will be Stranger#" + process.pid + ", unless you change your nickname with /nick")})
 });
 
 
 om.on('gotMessage', function (msg) {
 	debug(`Stranger sent: ${msg}`)
-	if (connected == true) {}
+	if (connected == false) {
+		if (msg != captchatext) {
+			sendWithTyping("You have gotten the captcha wrong. Goodbye.")
+			.then(()=>{resetConnection()})
+		} else {
+			sendWithTyping("congrats you have typed it wri")
+		}
+	}
 });
 
 om.on('commonLikes', function (likes) {
@@ -98,10 +125,7 @@ om.on('strangerDisconnected', function () {
 
 om.on('disconnected', function () {
 	debug("Got disconnected. Reconnecting...")
-
+	om.connect(topics);
 });
 
 om.connect(topics);
-
-
-

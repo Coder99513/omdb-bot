@@ -8,7 +8,7 @@
         "module": "CommonJS",
         "outDir": "dist",
         "sourceMap": false
-    },
+    }, 
     "include": ["src/**/*"],
     "exclude": ["node_modules"]
 }
