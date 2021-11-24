@@ -3,9 +3,7 @@
   "version": "0.0.1",
   "description": "lol",
   "main": "dist/index.js",
-  "scripts": {
-    "test": "tsc; node dist/index.js"
-  },
+  "scripts": {},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Coder99513/omdb-bot.git"
@@ -23,6 +21,7 @@
     "@types/node": "^16.4.6"
   },
   "dependencies": {
+    "chalk": "^4.1.2",
     "omegle-node-fix": "^1.1.7",
     "redis": "^3.1.2"
   }
