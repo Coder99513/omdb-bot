@@ -1,6 +1,6 @@
 /********************************************************************** 
  * Teenzylab Technologies
- * CascadiaBot: Standard Console utilites
+ * OMDB: Standard Console utilites
  * Description:
  *      Provide console utils
  * **********************************************************************/

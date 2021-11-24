@@ -1,13 +1,15 @@
+/********************************************************************** 
+ * Teenzylab Technologies
+ * OMDB: Chat worker
+ * Description:
+ *      Find omegle users and connect them to the OMDB redis system
+ * **********************************************************************/
 
-
-const { channel } = require('diagnostics_channel');
+// Modules
 const Omegle = require('omegle-node-fix');
-const { format } = require('path/posix');
-const { send } = require('process');
 const om = new Omegle();
 
 const redis = require("redis");
-const { arrayBuffer } = require('stream/consumers');
 let client = redis.createClient();
 let publisher = redis.createClient();
 
@@ -15,16 +17,25 @@ const cutils = require('./consoleUtils.js')
 
 const intdebug = true; // Set to true to enable internal debug
 
+// ["art", "music", "advice", "chat", "bored", "drunk", "pizza", "illuminati"];
+// Settings / Worker global variables
 let connected = false;
-const settopics = ["art", "music", "advice"];
+const settopics = ["weight gain", "feederism"];
 let topics = settopics;
 let captchatext = "";
 let nickname = "";
+let cntdebounce = false;
+let captchaTimer;
+let incorrectCaptchaTries = 0;
 
-// 1 "Cycle" is a connection to an omegle user.
-// Cycledelta is the number of tries it took to get to this user
-// Cycledelta is reset upon finding a user.
-// userNumber is the number of users the bot has seen.
+/***********************************************************************
+ * WORKER ATTRIBUTES
+ * 
+ *1 "Cycle" is a connection to an omegle user.
+ *Cycledelta is the number of tries it took to get to this user
+ *Cycledelta is reset upon finding a user.
+ *userNumber is the number of users the bot has seen.
+***********************************************************************/
 let chatinitinfo = {
 	cycles: 0
 	, cycledelta: 0
@@ -40,18 +51,19 @@ let chatroominfo = {
 
 let userAttributes = {
 	nick: `Stranger#${process.pid}`,
-	pid: process.pid,
-	channel: ""
+	pid: process.pid
 }
 
+
+/**********************************************************************
+ * HELPER FUNCTIONS
+ **********************************************************************/
 
 // Captcha gen
 function captchaWordGen() {
 	const words = ["Apple", "Bannana", "Pear", "Water", "Monday"];
 	return words[Math.floor(Math.random() * words.length)];
 }
-
-
 
 // Format commands
 function formatMessage(input) {
@@ -72,6 +84,7 @@ function resetConnection() {
 	}
 	om.connect(topics)
 }
+
 // Promise, sends a message more quickly than a human, but slower than an instantaneous message send.
 const sendWithTyping = (message) => {
 	return new Promise((resolve, reject) => {
@@ -81,23 +94,48 @@ const sendWithTyping = (message) => {
 				if (!om.connected()) { cutils.error("Not connected to omegle user."); return; }
 				try {
 					om.send(message);
-					cutils.ebug(`Omegle bot sent: ${message}`)
+					cutils.debug(`Omegle bot sent: ${message}`)
 					om.stopTyping();
 				} catch (e) { cutils.error(e) };
 				resolve(1);
-			}, 700)
+			}, 250)
 		} else cutils.error("Not connected to Omegle user.");
 	});
 };
 
-// Miscellaneous connection and erroror handlers.
+// Helper function - check if JSON
+function isJson(item) {
+	item = typeof item !== "string"
+		? JSON.stringify(item)
+		: item;
+
+	try {
+		item = JSON.parse(item);
+	} catch (e) {
+		return false;
+	}
+
+	if (typeof item === "object" && item !== null) {
+		return true;
+	}
+
+	return false;
+}
+
+
+
+
+/**********************************************************************
+ * ANCILLARY OMEGLE HANDLERS
+ **********************************************************************/
 
 // Handle errors and recaptchas.
 om.on('omerror', function (err) {
-	cutils.ebug('Omegle Error: ' + err);
+	cutils.debug('Omegle Error: ' + err);
 });
+
 om.on('recaptchaRequired', function (challenge) {
-	cutils.ebug("Captcha found. Disconnecting.");
+	cutils.debug("Captcha found. Disconnecting.");
 	clearInterval(captchaTimer);
 	chatinitinfo.cycledelta++;
 	resetConnection();
@@ -105,27 +143,57 @@ om.on('recaptchaRequired', function (challenge) {
 
 // Search for a user.
 om.on('gotID', function (id) {
-	cutils.ebug('Connected to Omegle as ' + id);
+	cutils.debug('Connected to Omegle as ' + id);
 	setTimeout(function () {
 		if (!om.connected()) {
 			om.stopLookingForCommonLikes(); // or you could call om.slfcl()
-			cutils.ebug('Topics ineffective. Searching for random user.');
+			cutils.debug('Topics ineffective. Searching for random user.');
 			topics = [];
 		}
 	}, 30000);
 });
 
 om.on('waiting', function () {
-	cutils.ebug("Searching for stranger...");
+	cutils.debug("Searching for stranger...");
 });
 
 om.on('serverUpdated', function (server) {
-	cutils.ebug('Server updated to: ' + server);
+	cutils.debug('Server updated to: ' + server);
 });
 
-let cntdebounce = false;
-let captchaTimer;
+om.on('commonLikes', function (likes) {
+	chatinitinfo.likes = likes;
+});
 
+om.on('strangerDisconnected', function () {
+	if (connected == true) cutils.warn(`${process.pid} Disconnected from stranger (them).`)
+	clearInterval(captchaTimer);
+	if (connected == true) {
+		publisher.publish(channelset, JSON.stringify(["sysmsg", userAttributes, userAttributes.nick + " has disconnected"]), () => { })
+		connected = false;
+	}
+	cntdebounce = false;
+	chatinitinfo.cycledelta++;
+	chatinitinfo.cycles++;
+});
+
+om.on('disconnected', function () {
+	if (connected == true) cutils.warn(`${process.pid} Disconnected from stranger (bot).`)
+	cutils.debug("Got disconnected. Reconnecting...");
+	clearInterval(captchaTimer);
+	cntdebounce = false;
+	chatinitinfo.cycledelta++;
+	chatinitinfo.cycles++;
+	topics = settopics;
+	try {
+		om.connect(topics);
+	} catch (e) { cutils.error(e) }
+});
+
+
+/**********************************************************************
+ * CONNECTION / CENTRAL CAPTCHA FUNCTION
+ **********************************************************************/
 om.on('connected', function () {
 	if (cntdebounce == false) {
 		incorrectCaptchaTries = 0;
@@ -148,9 +216,11 @@ om.on('connected', function () {
 	}
 });
 
-let incorrectCaptchaTries = 0;
+/**********************************************************************
+ * OMEGLE MESSAGE HANDLER
+ **********************************************************************/
 om.on('gotMessage', function (msg) {
-	cutils.ebug(`Stranger sent: ${msg}`)
+	cutils.debug(`Stranger sent: ${msg}`)
 	if (connected == false) {
 		// Captcha logic
 		if (!msg.toLowerCase().includes(captchatext.toLowerCase())) {
@@ -167,12 +237,14 @@ om.on('gotMessage', function (msg) {
 			chatinitinfo.userNumber++;
 			clearInterval(captchaTimer);
 			cutils.ok(`${process.pid} found a user.`)
-			sendWithTyping("It has taken " + chatinitinfo.cycledelta + " tries for this bot to find you since the last user. The bot has tried " + chatinitinfo.cycles + " in total. There have been " + chatinitinfo.userNumber + " real people interacting with this specific bot in the past.")
-				.then(() => { sendWithTyping("Your nickname in this chatroom is Stranger#" + captchaTimer + ", unless you change your nickname with /nick") })
+			sendWithTyping("It has taken " + chatinitinfo.cycledelta + " tries for this bot to find you since the last user. The bot has tried " + chatinitinfo.cycles + " in total. There have been " + chatinitinfo.userNumber + " real people interacting with this specific worker bot in the past.")
+				.then(() => { sendWithTyping("Your nickname in this chatroom is Stranger#" + captchaTimer + ". You may change your nickname with /nick <name>") })
+				.then(() => { sendWithTyping("You may change your nickname with /nick <name>") })
 				.then(() => { sendWithTyping("There are " + chatroominfo.inRoom.length + " other users in this room.") })
-			chatinitinfo.cycledelta = 0;
+			userAttributes.nick = `Stranger#${process.pid}`;
 			connected = true;
-			publisher.publish(channelset, JSON.stringify(["sysmsg", userAttributes, userAttributes.nick + " has joined"]), () => { })
+			publisher.publish(channelset, JSON.stringify(["sysmsg", userAttributes, userAttributes.nick + " has joined", chatinitinfo]), () => { })
+			chatinitinfo.cycledelta = 0;
 		}
 	} else {
 		if (msg.startsWith("/"))
@@ -181,35 +253,6 @@ om.on('gotMessage', function (msg) {
 			publisher.publish(channelset, JSON.stringify(["chatmsg", userAttributes, userAttributes.nick+" | "+msg]), () => { })
 		}
 	}
-});
-
-om.on('commonLikes', function (likes) {
-	chatinitinfo.likes = likes;
-});
-
-om.on('strangerDisconnected', function () {
-	if (connected == true) cutils.warn(`${process.pid} Disconnected from stranger (them).`)
-	clearInterval(captchaTimer);
-	if (connected == true) {
-		publisher.publish(channelset, JSON.stringify(["sysmsg", userAttributes, userAttributes.nick + " has disconnected"]), () => { })
-		connected = false;
-	}
-	cntdebounce = false;
-	chatinitinfo.cycledelta++;
-	chatinitinfo.cycles++;
-});
-
-om.on('disconnected', function () {
-	if (connected == true) cutils.warn(`${process.pid} Disconnected from stranger (bot).`)
-	cutils.ebug("Got disconnected. Reconnecting...");
-	clearInterval(captchaTimer);
-	cntdebounce = false;
-	chatinitinfo.cycledelta++;
-	chatinitinfo.cycles++;
-	topics = settopics;
-	try {
-		om.connect(topics);
-	} catch (e) { cutils.error(e) }
 });
 
 // Handle commands
@@ -228,46 +271,34 @@ function commandHandler(msg) {
 	}
 }
 
-function isJson(item) {
-	item = typeof item !== "string"
-		? JSON.stringify(item)
-		: item;
-
-	try {
-		item = JSON.parse(item);
-	} catch (e) {
-		return false;
-	}
-
-	if (typeof item === "object" && item !== null) {
-		return true;
-	}
-
-	return false;
-}
-
-
+/**********************************************************************
+ * REDIS MESSAGE HANDLER
+ **********************************************************************/
 let channelset;
 const args = process.argv.slice(2);
 client.on("message", function (channel, message) {
-	cutils.ebug(`Recieved message: ${message}`)
+	cutils.debug(`Recieved message: ${message}`)
 	if (!isJson(message)) {
-		// system flags
+		// Internal system flags
 		if (message == "BEGIN" && channel == channelset) {
 			cutils.ok(`${process.pid} starting...`)
 			om.connect(topics)
 		};
-		if (message == "STOP" && channel == channelset) process.exit(0);
+		if (message == "STOP" && channel == channelset) {
+			sendWithTyping("Bot is shutting down. Goodbye, and have an excellent day!")
+			.then(()=>{sendWithTyping("== Thank you for choosing Teenzylab Technologies ==")})
+			.then(process.exit);
+		}
 	} else {
-		// Message?
+		// Chat message / system message
 		message = JSON.parse(message)
 		if (message[0] == "chatmsg" && connected == true && message[1].pid != process.pid) {
 			if (message[1].pid != process.pid) 
 				sendWithTyping(message[2])
 			
 		} else if (message[0] == "sysmsg") {
-			//if (message[1].pid == process.pid) break;
-			cutils.ebug("Recieved system message")
+			//Check for joins and leaves, as well ask keep track of number of users.
+			cutils.debug("Recieved system message")
 			if (message[2].endsWith("has joined"))
 				chatroominfo.inRoom.push(message[1].pid)
 			if (message[2].endsWith("has disconnected"))
@@ -277,6 +308,8 @@ client.on("message", function (channel, message) {
 		}
 	}
 });
+
+// Worker control handle
 module.exports = (chnl) => {
 	client.subscribe(chnl);
 	channelset = chnl;

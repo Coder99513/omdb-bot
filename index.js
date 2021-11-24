@@ -45,15 +45,8 @@ if (cluster.isMaster) {
     return false;
   }
 
-  const client = redis.createClient();
   const subscriber = redis.createClient();
   const publisher = redis.createClient();
-
-  client.on("error", function (error) {
-    console.error(`Redis error in ${process.pid}: ${error}`);
-  });
-
-  client.set("numConnectedUsers", 0)
 
   console.log(`Primary ${process.pid} is running`);
 
@@ -61,7 +54,7 @@ if (cluster.isMaster) {
   cluster.on('exit', (worker, code, signal) => {
     console.log(`worker ${worker.process.pid} died`);
   });
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     setTimeout(cluster.fork, between(1000, 4000));
   }
 
@@ -74,13 +67,14 @@ if (cluster.isMaster) {
     }
     process.stdout.write("> ");
     rl.on('line', (input) => {
+      if (input == "STOPBOT") publisher.publish(channel, "STOP")
       publisher.publish(channel, JSON.stringify(["chatmsg", {pid: process.pid, nick: "System"}, "Sysop -> "+input]), () => { })
     });
   }
   startConsole();
 
   // Tell units to begin
-  setTimeout(() => { client.publish(channel, "BEGIN") }, 7000)
+  setTimeout(() => { publisher.publish(channel, "BEGIN") }, 7000)
 
   // Master controller
   subscriber.on("message", function (channel, message) {
@@ -98,6 +92,8 @@ if (cluster.isMaster) {
     }
   });
   subscriber.subscribe(channel);
+  require('./src/discordBot.js')(channel)
+
 
 } else {
   cutils.log(`Starting worker from ${process.pid}`)
