@@ -20,7 +20,7 @@ const intdebug = true; // Set to true to enable internal debug
 // ["art", "music", "advice", "chat", "bored", "drunk", "pizza", "illuminati"];
 // Settings / Worker global variables
 let connected = false;
-const settopics = ["weight gain", "feederism"];
+const settopics = ["art", "music", "advice", "chat", "bored", "drunk", "pizza", "illuminati"];
 let topics = settopics;
 let captchatext = "";
 let nickname = "";
