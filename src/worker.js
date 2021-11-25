@@ -13,9 +13,15 @@ const redis = require("redis");
 let client = redis.createClient();
 let publisher = redis.createClient();
 
-const cutils = require('./consoleUtils.js')
+const cutils = require('./consoleUtils.js');
 
-const intdebug = true; // Set to true to enable internal debug
+// Debug channel
+const diagnostics_channel = require('diagnostics_channel');
+const channel = diagnostics_channel.channel(`OMDB-ChatWorker-${process.pid}`)
+function ctdebug(msg) {
+	channel.publish({type: "debugmsg", sender: process.pid, payload: msg})
+}
+
 
 // ["art", "music", "advice", "chat", "bored", "drunk", "pizza", "illuminati"];
 // Settings / Worker global variables
@@ -61,7 +67,7 @@ let userAttributes = {
 
 // Captcha gen
 function captchaWordGen() {
-	const words = ["Apple", "Bannana", "Pear", "Water", "Monday"];
+	const words = ["Apple", "Banana", "Pear", "Water", "Monday"];
 	return words[Math.floor(Math.random() * words.length)];
 }
 
@@ -85,24 +91,6 @@ function resetConnection() {
 	om.connect(topics)
 }
 
-// Promise, sends a message more quickly than a human, but slower than an instantaneous message send.
-const sendWithTyping = (message) => {
-	return new Promise((resolve, reject) => {
-		if (om.connected()) {
-			om.startTyping();
-			setTimeout(() => {
-				if (!om.connected()) { cutils.error("Not connected to omegle user."); return; }
-				try {
-					om.send(message);
-					cutils.debug(`Omegle bot sent: ${message}`)
-					om.stopTyping();
-				} catch (e) { cutils.error(e) };
-				resolve(1);
-			}, 250)
-		} else cutils.error("Not connected to Omegle user.");
-	});
-};
-
 // Helper function - check if JSON
 function isJson(item) {
 	item = typeof item !== "string"
@@ -121,6 +109,59 @@ function isJson(item) {
 
 	return false;
 }
+
+
+/**********************************************************************
+ * SEND FUNCTIONS
+ **********************************************************************/
+let messagequeue = [];
+let nextmessage = null;
+let sIntervalRunning = null;
+
+// Sends the next message in the queue and pops the last message
+function sendInterval() {
+	if (om.connected() && connected == true) {
+		if (messagequeue.length == 0) {
+			if (nextmessage != null) {
+				cutils.debug(`Sending (connected): ${nextmessage}`);
+				om.send(nextmessage);
+				nextmessage = null;
+			}
+			om.stopTyping();
+		}
+		if (messagequeue.length > 0) {
+			if (nextmessage != null) { 
+				cutils.debug(`Sending (connected): ${nextmessage}`);
+				om.send(nextmessage);
+			} else om.startTyping();
+			nextmessage = messagequeue.shift();
+		}
+	} else {
+		// Auto-reset
+		messagequeue = [];
+		nextmessage = null;
+		connected = false;
+		clearInterval(sIntervalRunning);
+	}
+}
+
+// Promise, sends a message more quickly than a human, but slower than an instantaneous message send.
+const sendWithTyping = (message) => {
+	return new Promise((resolve, reject) => {
+		if (om.connected()) {
+			om.startTyping();
+			setTimeout(() => {
+				if (!om.connected()) { cutils.error("Not connected to omegle user."); return; }
+				try {
+					om.send(message);
+					cutils.debug(`Omegle bot sent: ${message}`)
+					om.stopTyping();
+				} catch (e) { cutils.error(e) };
+				resolve(1);
+			}, 1100)
+		} else cutils.error("Not connected to Omegle user.");
+	});
+};
 
 
 
@@ -243,6 +284,7 @@ om.on('gotMessage', function (msg) {
 				.then(() => { sendWithTyping("There are " + chatroominfo.inRoom.length + " other users in this room.") })
 			userAttributes.nick = `Stranger#${process.pid}`;
 			connected = true;
+			sIntervalRunning = setInterval(sendInterval, 800);
 			publisher.publish(channelset, JSON.stringify(["sysmsg", userAttributes, userAttributes.nick + " has joined", chatinitinfo]), () => { })
 			chatinitinfo.cycledelta = 0;
 		}
@@ -263,9 +305,9 @@ function commandHandler(msg) {
 		case "/nick":
 			if (msg[1] != undefined) {
 				userAttributes.nick = msg[1];
-				sendWithTyping("Set your nickname to " + userAttributes.nick)
+				messagequeue.push("Set your nickname to " + userAttributes.nick)
 			} else {
-				sendWithTyping("You must specify a nickname!")
+				messagequeue.push("You must specify a nickname!")
 			}
 			break;
 	}
@@ -285,16 +327,19 @@ client.on("message", function (channel, message) {
 			om.connect(topics)
 		};
 		if (message == "STOP" && channel == channelset) {
-			sendWithTyping("Bot is shutting down. Goodbye, and have an excellent day!")
-			.then(()=>{sendWithTyping("== Thank you for choosing Teenzylab Technologies ==")})
-			.then(process.exit);
+			if (connected == true) {
+				connected = false;
+				sendWithTyping("Bot is shutting down. Goodbye, and have an excellent day!")
+				.then(()=>{sendWithTyping("== Thank you for choosing Teenzylab Technologies ==")})
+				.then(process.exit);
+			} else process.exit(0);
 		}
 	} else {
 		// Chat message / system message
 		message = JSON.parse(message)
 		if (message[0] == "chatmsg" && connected == true && message[1].pid != process.pid) {
 			if (message[1].pid != process.pid) 
-				sendWithTyping(message[2])
+				messagequeue.push(message[2])
 			
 		} else if (message[0] == "sysmsg") {
 			//Check for joins and leaves, as well ask keep track of number of users.
@@ -304,7 +349,7 @@ client.on("message", function (channel, message) {
 			if (message[2].endsWith("has disconnected"))
 				chatroominfo.inRoom.splice(chatroominfo.inRoom.indexOf(message[1].pid), 1)
 			if (connected == true) 
-				sendWithTyping(message[2])
+				messagequeue.push(message[2])
 		}
 	}
 });
